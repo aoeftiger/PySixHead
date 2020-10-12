@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.constants import e, c
 
-from SixHead.beamloss import STLAperture
+from PySixHead.beamloss import STLAperture
 
 try:
     from pycuda import cumath
@@ -23,7 +23,7 @@ try:
     #     memcpy_atoa(dest, 0, src, 0, len(src))
         memcpy_dtod_async(dest.gpudata, src.gpudata, src.nbytes)
 
-    from SixHead.beamloss import STLApertureGPU
+    from PySixHead.beamloss import STLApertureGPU
 
     has_gpu = True
 except Exception:
