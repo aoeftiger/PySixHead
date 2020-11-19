@@ -23,8 +23,6 @@ try:
     #     memcpy_atoa(dest, 0, src, 0, len(src))
         memcpy_dtod_async(dest.gpudata, src.gpudata, src.nbytes)
 
-    from PySixHead.beamloss import STLApertureGPU
-
     has_gpu = True
 except Exception:
     has_gpu = False
@@ -184,6 +182,8 @@ if has_gpu:
 
             self.allow_losses = allow_losses
             if allow_losses:
+                from PySixHead.beamloss import STLApertureGPU
+
                 self.aperture = STLApertureGPU(self)
 
         def track(self, beam):
