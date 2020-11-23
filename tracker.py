@@ -151,25 +151,27 @@ if has_gpu:
             if STLTrackerGPU.cudatrackjob is None:
                 STLTrackerGPU.cudatrackjob = cudatrackjob
 
+                n_mp = int(job.particles_buffer.get_object(0).num_particles)
+                
                 cudatrackjob.fetch_particle_addresses()
                 assert cudatrackjob.last_status_success
                 ptr = cudatrackjob.get_particle_addresses() # particleset==0 is default
 
                 STLTrackerGPU.pointers.update({
-                    'x': provide_pycuda_array(ptr.contents.x),
-                    'px': provide_pycuda_array(ptr.contents.px),
-                    'y': provide_pycuda_array(ptr.contents.y),
-                    'py': provide_pycuda_array(ptr.contents.py),
-                    'z': provide_pycuda_array(ptr.contents.zeta),
-                    'delta': provide_pycuda_array(ptr.contents.delta),
-                    'rpp': provide_pycuda_array(ptr.contents.rpp),
-                    'psigma': provide_pycuda_array(ptr.contents.psigma),
-                    'rvv': provide_pycuda_array(ptr.contents.rvv),
-                    'id': provide_pycuda_array(ptr.contents.particle_id, np.int64),
-                    'state': provide_pycuda_array(ptr.contents.state, np.int64),
-                    'at_turn': provide_pycuda_array(ptr.contents.at_turn, np.int64),
-                    'at_element': provide_pycuda_array(ptr.contents.at_element, np.int64),
-                    's': provide_pycuda_array(ptr.contents.s, np.float64),
+                    'x': provide_pycuda_array(ptr.contents.x, n_mp),
+                    'px': provide_pycuda_array(ptr.contents.px, n_mp),
+                    'y': provide_pycuda_array(ptr.contents.y, n_mp),
+                    'py': provide_pycuda_array(ptr.contents.py, n_mp),
+                    'z': provide_pycuda_array(ptr.contents.zeta, n_mp),
+                    'delta': provide_pycuda_array(ptr.contents.delta, n_mp),
+                    'rpp': provide_pycuda_array(ptr.contents.rpp, n_mp),
+                    'psigma': provide_pycuda_array(ptr.contents.psigma, n_mp),
+                    'rvv': provide_pycuda_array(ptr.contents.rvv, n_mp),
+                    'id': provide_pycuda_array(ptr.contents.particle_id, n_mp, dtype=np.int64),
+                    'state': provide_pycuda_array(ptr.contents.state, n_mp, dtype=np.int64),
+                    'at_turn': provide_pycuda_array(ptr.contents.at_turn, n_mp, dtype=np.int64),
+                    'at_element': provide_pycuda_array(ptr.contents.at_element, n_mp, dtype=np.int64),
+                    's': provide_pycuda_array(ptr.contents.s, n_mp),
                 })
                 STLTrackerGPU.n_elements = len(
                     cudatrackjob.beam_elements_buffer.get_elements())
@@ -190,12 +192,12 @@ if has_gpu:
             # pass arrays and convert units
             self.pyht_to_stl(beam)
             # track in SixTrackLib
-            cudatrackjob.track_line(self.i_start, self.i_end,
+            self.cudatrackjob.track_line(self.i_start, self.i_end,
                                     finish_turn=self.is_last_element)
             # to be replaced by barrier:
-            cudatrackjob.collectParticlesAddresses()
+            self.cudatrackjob.collectParticlesAddresses()
 
-            assert cudatrackjob.last_track_status_success
+            assert self.cudatrackjob.last_track_status_success
             # pass arrays back (converting units back)
             self.stl_to_pyht(beam)
 
