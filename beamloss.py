@@ -4,7 +4,7 @@ from PyHEADTAIL.aperture.aperture import Aperture
 from PyHEADTAIL.general import pmath as pm
 
 try:
-    from PySixHead.tracker import gpuarray_memcpy
+    from PySixHead.gpu_helpers import gpuarray_memcpy
     has_gpu = True
 except Exception:
     has_gpu = False

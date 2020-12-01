@@ -5,26 +5,16 @@ from PySixHead.beamloss import STLAperture
 
 try:
     from pycuda import cumath
-    import pycuda.gpuarray as gp
-    from pycuda.driver import memcpy_dtod_async
     import pycuda.driver as drv
-
     context = drv.Context.get_current() #pycuda.autoinit.context
 
-    def provide_pycuda_array(ptr, n_entries):
-        return gp.GPUArray(n_entries, dtype=np.float64, gpudata=ptr)
+    from PySixHead.gpu_helpers import provide_pycuda_array, gpuarray_memcpy
 
-
-    def gpuarray_memcpy(dest, src):
-        '''Device memory copy with pycuda from
-        src GPUArray to dest GPUArray.
-        '''
-    #     dest[:] = src
-    #     memcpy_atoa(dest, 0, src, 0, len(src))
-        memcpy_dtod_async(dest.gpudata, src.gpudata, src.nbytes)
+    from PySixHead.beamloss import STLApertureGPU
 
     has_gpu = True
-except Exception:
+except Exception as e:
+    print (f'GPU not available: {e}')
     has_gpu = False
 
 
@@ -55,7 +45,7 @@ class STLTracker(object):
             self.i_end = i_end
         else:
             self.i_end = self.n_elements
-        self.is_last_element = (i_end == self.n_elements)
+        self.is_last_element = (self.i_end == self.n_elements)
 
         self.allow_losses = allow_losses
         if allow_losses:
@@ -151,11 +141,13 @@ if has_gpu:
             if STLTrackerGPU.cudatrackjob is None:
                 STLTrackerGPU.cudatrackjob = cudatrackjob
 
-                n_mp = int(job.particles_buffer.get_object(0).num_particles)
-                
+                n_mp = int(
+                    cudatrackjob.particles_buffer.get_object(0).num_particles)
+
                 cudatrackjob.fetch_particle_addresses()
                 assert cudatrackjob.last_status_success
-                ptr = cudatrackjob.get_particle_addresses() # particleset==0 is default
+                # particleset==0 is default:
+                ptr = cudatrackjob.get_particle_addresses()
 
                 STLTrackerGPU.pointers.update({
                     'x': provide_pycuda_array(ptr.contents.x, n_mp),
@@ -167,25 +159,30 @@ if has_gpu:
                     'rpp': provide_pycuda_array(ptr.contents.rpp, n_mp),
                     'psigma': provide_pycuda_array(ptr.contents.psigma, n_mp),
                     'rvv': provide_pycuda_array(ptr.contents.rvv, n_mp),
-                    'id': provide_pycuda_array(ptr.contents.particle_id, n_mp, dtype=np.int64),
-                    'state': provide_pycuda_array(ptr.contents.state, n_mp, dtype=np.int64),
-                    'at_turn': provide_pycuda_array(ptr.contents.at_turn, n_mp, dtype=np.int64),
-                    'at_element': provide_pycuda_array(ptr.contents.at_element, n_mp, dtype=np.int64),
+                    'id': provide_pycuda_array(
+                        ptr.contents.particle_id, n_mp, dtype=np.int64),
+                    'state': provide_pycuda_array(
+                        ptr.contents.state, n_mp, dtype=np.int64),
+                    'at_turn': provide_pycuda_array(
+                        ptr.contents.at_turn, n_mp, dtype=np.int64),
+                    'at_element': provide_pycuda_array(
+                        ptr.contents.at_element, n_mp, dtype=np.int64),
                     's': provide_pycuda_array(ptr.contents.s, n_mp),
                 })
                 STLTrackerGPU.n_elements = len(
                     cudatrackjob.beam_elements_buffer.get_elements())
 
             self.i_start = i_start
-            self.i_end = i_end
-            self.is_last_element = (i_end == self.n_elements)
+            if i_end and i_end != -1:
+                self.i_end = i_end
+            else:
+                self.i_end = self.n_elements
+            self.is_last_element = (self.i_end == self.n_elements)
 
             self.context = context
 
             self.allow_losses = allow_losses
             if allow_losses:
-                from PySixHead.beamloss import STLApertureGPU
-
                 self.aperture = STLApertureGPU(self)
 
         def track(self, beam):
@@ -246,17 +243,17 @@ if has_gpu:
 
         def stl_to_pyht(self, beam):
             if self.allow_losses:
-                all = np.s_[:beam.macroparticlenumber]
+                mask_pyht = np.s_[:beam.macroparticlenumber]
             else:
-                all = np.s_[:]
-            beam.x = self.pointers['x'][all]
-            beam.xp = self.pointers['px'][all]
-            beam.y = self.pointers['y'][all]
-            beam.yp = self.pointers['py'][all]
-            beam.z = self.pointers['z'][all]
-            beam.dp = self.pointers['delta'][all]
-            beam.id = self.pointers['id'][all]
-            beam.state = self.pointers['state'][all]
-            beam.at_turn = self.pointers['at_turn'][all]
-            beam.at_element = self.pointers['at_element'][all]
-            beam.s = self.pointers['s'][all]
+                mask_pyht = np.s_[:]
+            beam.x = self.pointers['x'][mask_pyht]
+            beam.xp = self.pointers['px'][mask_pyht]
+            beam.y = self.pointers['y'][mask_pyht]
+            beam.yp = self.pointers['py'][mask_pyht]
+            beam.z = self.pointers['z'][mask_pyht]
+            beam.dp = self.pointers['delta'][mask_pyht]
+            beam.id = self.pointers['id'][mask_pyht]
+            beam.state = self.pointers['state'][mask_pyht]
+            beam.at_turn = self.pointers['at_turn'][mask_pyht]
+            beam.at_element = self.pointers['at_element'][mask_pyht]
+            beam.s = self.pointers['s'][mask_pyht]
