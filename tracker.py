@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.constants import e, c
+from functools import partial
 
 from PySixHead.beamloss import STLAperture
 
@@ -18,22 +19,91 @@ except Exception as e:
     has_gpu = False
 
 
+def compute_rpp_psigma_rvv(pyht_beam, mathlib=np):
+    '''Compute rpp, psigma and rvv from delta (pyht_beam.dp) and
+    attach to pyht_beam. Uses given mathlib for computing sqrt.
+    '''
+    pyht_beam.rpp = 1. / (pyht_beam.dp + 1)
+
+    restmass = pyht_beam.mass * c**2
+    restmass_sq = restmass**2
+    E0 = np.sqrt((pyht_beam.p0 * c)**2 + restmass_sq)
+    p = pyht_beam.p0 * (1 + pyht_beam.dp)
+    E = mathlib.sqrt((p * c) * (p * c) + restmass_sq)
+    pyht_beam.psigma =  (E - E0) / (pyht_beam.beta * pyht_beam.p0 * c)
+
+    gamma = E / restmass
+    beta = mathlib.sqrt(1 - 1. / (gamma * gamma))
+    pyht_beam.rvv = beta / pyht_beam.beta
+
+
+def add_STL_attrs_to_PyHT_beam(pyht_beam, longitudinal_update=True):
+    '''Upgrade PyHEADTAIL.Particles instance pyht_beam
+    with all relevant attributes required by SixTrackLib.
+    Thus, any reordering of pyht_beam (e.g. due to
+    slicing or beam loss) will apply to the new
+    attributes from SixTrackLib as well.
+
+    Arguments:
+        - pyht_beam: PyHEADTAIL beam instance
+        - longitudinal_update: default True. False will speed up
+                memory transfer from PyHEADTAIL to SixTrackLib by
+                not recomputing the longitudinal rvv, rpp, psigma
+                coordinates from delta [expert setting! Useful e.g. for
+                transverse 2.5D PIC where only xp and yp are updated!]
+    '''
+    assert not any(map(
+            lambda a: hasattr(pyht_beam, a),
+            ['state', 'at_turn', 'at_element', 's',
+             'has_STL_API', 'STL_longitudinal_update'])
+        ), 'pyht_beam already has been updated with SixTrackLib attributes!'
+
+    n = pyht_beam.macroparticlenumber
+
+    coords_n_momenta_dict = {
+        'state': np.ones(n, dtype=np.int64),
+        'at_turn': np.zeros(n, dtype=np.int64),
+        'at_element': np.zeros(n, dtype=np.int64),
+        's': np.zeros(n, dtype=np.float64),
+    }
+
+    pyht_beam.update(coords_n_momenta_dict)
+    pyht_beam.id = pyht_beam.id.astype(np.int64)
+
+    pyht_beam.STL_longitudinal_update = longitudinal_update
+    if not longitudinal_update:
+        print ('\n\n*** Attention: longitudinal_update == False !!!\n'
+               'That means any updates of delta (dp) outside of SixTrackLib\n'
+               'are *TREATED WRONGLY*! The longitudinal momentum is assumed\n'
+               'to stay constant in any kicks outside of SixTrackLib.\n'
+               '(Otherwise set longitudinal_update to True when calling\n'
+               'add_STL_attrs_to_PyHT_beam!)\n\n')
+        compute_rpp_psigma_rvv(pyht_beam)
+        pyht_beam.coords_n_momenta.update({'rpp', 'psigma', 'rvv'})
+
+    pyht_beam.has_STL_API = True
+
+
 class STLTracker(object):
     '''Tracker class for SixTrackLib through TrackJob interface.'''
     trackjob = None
     n_elements = 0
-    mathlib = np
 
-    def __init__(self, trackjob, i_start, i_end=None, allow_losses=False):
+    def __init__(self, trackjob, i_start, i_end=None,
+                 allow_losses=False):
         '''Tracker class for SixTrackLib through sixtracklib.TrackJob
-        interface. For CUDA / NVIDIA use the STLTrackerGPU class.
+        interface supporting openCL on multi-core CPU architectures.
+        For CUDA / NVIDIA use the STLTrackerGPU class.
 
         Arguments:
-            - trackjob: sixtracklib.TrackJob e.g. for openCL or cpu
+            - trackjob: sixtracklib.TrackJob for openCL (on CPU) or plain CPU
             - i_start: index of element to start the track_line with
             - i_end: index of element until before which the track_line
-                     should track. None or -1 will default to the last
-                     element in the trackjob.beam_elements_buffer .
+                    should track. None or -1 will default to the last
+                    element in the trackjob.beam_elements_buffer .
+            - allow_losses: whether to transfer SixTrackLib lost particles
+                    to PyHEADTAIL via PyHEADTAIL.aperture (this
+                    will reorder the particles). Default False.
         '''
         if STLTracker.trackjob is None:
             STLTracker.trackjob = trackjob
@@ -70,6 +140,8 @@ class STLTracker(object):
         ### this reorders the particles arrays!
         self.aperture.track(beam)
 
+    compute_rpp_psigma_rvv = staticmethod(compute_rpp_psigma_rvv)
+
     def pyht_to_stl(self, beam):
         stl_particles = self.trackjob.particles_buffer.get_object(0)
         n = beam.macroparticlenumber
@@ -81,6 +153,9 @@ class STLTracker(object):
         stl_particles.zeta[:n] = beam.z
         stl_particles.delta[:n] = beam.dp
 
+        if not (hasattr(beam, 'has_STL_API') and beam.has_STL_API):
+            add_STL_attrs_to_PyHT_beam(beam, longitudinal_update=True)
+
         stl_particles.particle_id[:n] = beam.id
         stl_particles.state[:n] = beam.state
         stl_particles.at_turn[:n] = beam.at_turn
@@ -88,21 +163,12 @@ class STLTracker(object):
         stl_particles.s[:n] = beam.s
 
         # further longitudinal coordinates of SixTrackLib
-        rpp = 1. / (beam.dp + 1)
-        stl_particles.rpp[:n] = rpp
+        if beam.STL_longitudinal_update:
+            self.compute_rpp_psigma_rvv(beam)
 
-        restmass = beam.mass * c**2
-        restmass_sq = restmass**2
-        E0 = np.sqrt((beam.p0 * c)**2 + restmass_sq)
-        p = beam.p0 * (1 + beam.dp)
-        E = self.mathlib.sqrt((p * c) * (p * c) + restmass_sq)
-        psigma =  (E - E0) / (beam.beta * beam.p0 * c)
-        stl_particles.psigma[:n] = psigma
-
-        gamma = E / restmass
-        beta = self.mathlib.sqrt(1 - 1. / (gamma * gamma))
-        rvv = beta / beam.beta
-        stl_particles.rvv[:n] = rvv
+        stl_particles.rpp[:n] = beam.rpp
+        stl_particles.psigma[:n] = beam.psigma
+        stl_particles.rvv[:n] = beam.rvv
 
         self.trackjob.push_particles()
 
@@ -137,7 +203,28 @@ if has_gpu:
         n_elements = 0
 
         def __init__(self, cudatrackjob, i_start, i_end, context=context,
-                     allow_losses=False):
+                     allow_losses=False, longitudinal_update=True):
+            '''Tracker class for SixTrackLib through sixtracklib.CudaTrackJob
+            interface, requires NVIDIA GPU with CUDA.
+            For openCL on CPU use STLTracker class.
+
+            Arguments:
+                - cudatrackjob: sixtracklib.CudaTrackJob instance
+                - i_start: index of element to start the track_line with
+                - i_end: index of element until before which the track_line
+                        should track. None or -1 will default to the last
+                        element in the trackjob.beam_elements_buffer
+                - context: pycuda context object (see note below!)
+                - allow_losses: whether to transfer SixTrackLib lost particles
+                        to PyHEADTAIL via PyHEADTAIL.aperture (this
+                        will reorder the particles). Default False.
+
+            !!! Important: initialise sixtracklib.CudaTrackJob before
+            initialising PyHEADTAIL or PyPIC objects, otherwise the contexts
+            are not called in proper order and the interface does not work!
+            (Typical errors relate to unreachable memory which has been
+            allocated in alien contexts.)
+            '''
             if STLTrackerGPU.cudatrackjob is None:
                 STLTrackerGPU.cudatrackjob = cudatrackjob
 
@@ -169,6 +256,7 @@ if has_gpu:
                         ptr.contents.at_element, n_mp, dtype=np.int64),
                     's': provide_pycuda_array(ptr.contents.s, n_mp),
                 })
+
                 STLTrackerGPU.n_elements = len(
                     cudatrackjob.beam_elements_buffer.get_elements())
 
@@ -206,6 +294,9 @@ if has_gpu:
                 ### this reorders the particles arrays!
                 self.aperture.track(beam)
 
+        compute_rpp_psigma_rvv = staticmethod(partial(
+            compute_rpp_psigma_rvv, mathlib=cumath))
+
         def pyht_to_stl(self, beam):
             self.memcpy(self.pointers['x'], beam.x)
             self.memcpy(self.pointers['px'], beam.xp)
@@ -214,6 +305,9 @@ if has_gpu:
             self.memcpy(self.pointers['z'], beam.z)
             self.memcpy(self.pointers['delta'], beam.dp)
 
+            if not (hasattr(beam, 'has_STL_API') and beam.has_STL_API):
+                add_STL_attrs_to_PyHT_beam(beam, longitudinal_update=True)
+
             self.memcpy(self.pointers['id'], beam.id)
             self.memcpy(self.pointers['state'], beam.state)
             self.memcpy(self.pointers['at_turn'], beam.at_turn)
@@ -221,21 +315,12 @@ if has_gpu:
             self.memcpy(self.pointers['s'], beam.s)
 
             # further longitudinal coordinates of SixTrackLib
-            rpp = 1. / (beam.dp + 1)
-            self.memcpy(self.pointers['rpp'], rpp)
+            if beam.STL_longitudinal_update:
+                self.compute_rpp_psigma_rvv(beam)
 
-            restmass = beam.mass * c**2
-            restmass_sq = restmass**2
-            E0 = np.sqrt((beam.p0 * c)**2 + restmass_sq)
-            p = beam.p0 * (1 + beam.dp)
-            E = cumath.sqrt((p * c) * (p * c) + restmass_sq)
-            psigma =  (E - E0) / (beam.beta * beam.p0 * c)
-            self.memcpy(self.pointers['psigma'], psigma)
-
-            gamma = E / restmass
-            beta = cumath.sqrt(1 - 1. / (gamma * gamma))
-            rvv = beta / beam.beta
-            self.memcpy(self.pointers['rvv'], rvv)
+            self.memcpy(self.pointers['rpp'], beam.rpp)
+            self.memcpy(self.pointers['psigma'], beam.psigma)
+            self.memcpy(self.pointers['rvv'], beam.rvv)
 
             self.context.synchronize()
 

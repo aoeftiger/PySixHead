@@ -1,5 +1,4 @@
-from PySixHead.tracker import STLTracker
-from PySixHead.beamloss import add_STL_attrs_to_PyHT_beam
+from PySixHead.tracker import STLTracker, add_STL_attrs_to_PyHT_beam
 
 # GPU:
 try:

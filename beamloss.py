@@ -6,33 +6,9 @@ from PyHEADTAIL.general import pmath as pm
 try:
     from PySixHead.gpu_helpers import gpuarray_memcpy
     has_gpu = True
-except Exception:
+except Exception as e:
+    print (f'GPU not available: {e}')
     has_gpu = False
-
-
-def add_STL_attrs_to_PyHT_beam(pyht_beam):
-    '''Upgrade PyHEADTAIL.Particles instance pyht_beam
-    with all relevant attributes required by SixTrackLib.
-    Thus, any reordering of pyht_beam (e.g. due to
-    slicing or beam loss) will apply to the new
-    attributes from SixTrackLib as well.
-    '''
-    assert not any(map(
-            lambda a: hasattr(pyht_beam, a),
-            ['state', 'at_turn', 'at_element', 's'])
-        ), 'pyht_beam already has been updated with SixTrackLib attributes!'
-    n = pyht_beam.macroparticlenumber
-
-    coords_n_momenta_dict = {
-        'state': np.ones(n, dtype=np.int64),
-        'at_turn': np.zeros(n, dtype=np.int64),
-        'at_element': np.zeros(n, dtype=np.int64),
-        's': np.zeros(n, dtype=np.float64),
-    }
-
-    pyht_beam.update(coords_n_momenta_dict)
-    pyht_beam.id = pyht_beam.id.astype(np.int64)
-
 
 
 class STLAperture(Aperture):
@@ -76,6 +52,10 @@ class STLAperture(Aperture):
         beam.at_element = beam.at_element[:n_alive]
         beam.at_turn = beam.at_turn[:n_alive]
         beam.s = beam.s[:n_alive]
+        if not beam.STL_longitudinal_update:
+            beam.rpp = beam.rpp[:n_alive]
+            beam.psigma = beam.psigma[:n_alive]
+            beam.rvv = beam.rvv[:n_alive]
 
         return n_alive
 
@@ -127,16 +107,20 @@ if has_gpu:
 
             ### additional part for SixTrackLib:
             self.pyht_to_stl(beam)
-            self.memcpy(self.stl_p['state'], beam.state)
-            self.memcpy(self.stl_p['at_turn'], beam.at_turn)
-            self.memcpy(self.stl_p['at_element'], beam.at_element)
-            self.memcpy(self.stl_p['s'], beam.s)
+            # self.memcpy(self.stl_p['state'], beam.state)
+            # self.memcpy(self.stl_p['at_turn'], beam.at_turn)
+            # self.memcpy(self.stl_p['at_element'], beam.at_element)
+            # self.memcpy(self.stl_p['s'], beam.s)
             ### also need to limit view on SixTrackLib attributes
             ### in PyHT beam for their next reordering
             beam.state = beam.state[:n_alive]
             beam.at_element = beam.at_element[:n_alive]
             beam.at_turn = beam.at_turn[:n_alive]
             beam.s = beam.s[:n_alive]
+            if not beam.STL_longitudinal_update:
+                beam.rpp = beam.rpp[:n_alive]
+                beam.psigma = beam.psigma[:n_alive]
+                beam.rvv = beam.rvv[:n_alive]
 
             return n_alive
 
