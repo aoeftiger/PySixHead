@@ -192,6 +192,10 @@ class STLTracker(object):
         beam.at_turn = stl_particles.at_turn[pyht_visible]
         beam.at_element = stl_particles.at_element[pyht_visible]
         beam.s = stl_particles.s[pyht_visible]
+        if not beam.STL_longitudinal_update:
+            beam.rpp = stl_particles.rpp[pyht_visible]
+            beam.psigma = stl_particles.psigma[pyht_visible]
+            beam.rvv = stl_particles.rvv[pyht_visible]
 
 
 if has_gpu:
@@ -328,17 +332,21 @@ if has_gpu:
 
         def stl_to_pyht(self, beam):
             if self.allow_losses:
-                mask_pyht = np.s_[:beam.macroparticlenumber]
+                pyht_visible = np.s_[:beam.macroparticlenumber]
             else:
-                mask_pyht = np.s_[:]
-            beam.x = self.pointers['x'][mask_pyht]
-            beam.xp = self.pointers['px'][mask_pyht]
-            beam.y = self.pointers['y'][mask_pyht]
-            beam.yp = self.pointers['py'][mask_pyht]
-            beam.z = self.pointers['z'][mask_pyht]
-            beam.dp = self.pointers['delta'][mask_pyht]
-            beam.id = self.pointers['id'][mask_pyht]
-            beam.state = self.pointers['state'][mask_pyht]
-            beam.at_turn = self.pointers['at_turn'][mask_pyht]
-            beam.at_element = self.pointers['at_element'][mask_pyht]
-            beam.s = self.pointers['s'][mask_pyht]
+                pyht_visible = np.s_[:]
+            beam.x = self.pointers['x'][pyht_visible]
+            beam.xp = self.pointers['px'][pyht_visible]
+            beam.y = self.pointers['y'][pyht_visible]
+            beam.yp = self.pointers['py'][pyht_visible]
+            beam.z = self.pointers['z'][pyht_visible]
+            beam.dp = self.pointers['delta'][pyht_visible]
+            beam.id = self.pointers['id'][pyht_visible]
+            beam.state = self.pointers['state'][pyht_visible]
+            beam.at_turn = self.pointers['at_turn'][pyht_visible]
+            beam.at_element = self.pointers['at_element'][pyht_visible]
+            beam.s = self.pointers['s'][pyht_visible]
+            if not beam.STL_longitudinal_update:
+                beam.rpp = self.pointers['rpp'][pyht_visible]
+                beam.psigma = self.pointers['psigma'][pyht_visible]
+                beam.rvv = self.pointers['rvv'][pyht_visible]

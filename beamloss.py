@@ -107,10 +107,14 @@ if has_gpu:
 
             ### additional part for SixTrackLib:
             self.pyht_to_stl(beam)
-            # self.memcpy(self.stl_p['state'], beam.state)
-            # self.memcpy(self.stl_p['at_turn'], beam.at_turn)
-            # self.memcpy(self.stl_p['at_element'], beam.at_element)
-            # self.memcpy(self.stl_p['s'], beam.s)
+            self.memcpy(self.stl_p['state'], beam.state)
+            self.memcpy(self.stl_p['at_turn'], beam.at_turn)
+            self.memcpy(self.stl_p['at_element'], beam.at_element)
+            self.memcpy(self.stl_p['s'], beam.s)
+            if not beam.STL_longitudinal_update:
+                self.memcpy(self.stl_p['rpp'], beam.rpp)
+                self.memcpy(self.stl_p['psigma'], beam.psigma)
+                self.memcpy(self.stl_p['rvv'], beam.rvv)
             ### also need to limit view on SixTrackLib attributes
             ### in PyHT beam for their next reordering
             beam.state = beam.state[:n_alive]
